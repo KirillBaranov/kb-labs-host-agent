@@ -2,6 +2,31 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "baseUrl": ".",
-    "paths": {}
+    "paths": {
+      "@kb-labs/host-agent-contracts": [
+        "packages/host-agent-contracts/src/index.ts"
+      ],
+      "@kb-labs/host-agent-contracts/*": [
+        "packages/host-agent-contracts/src/*"
+      ],
+      "@kb-labs/host-agent-core": [
+        "packages/host-agent-core/src/index.ts"
+      ],
+      "@kb-labs/host-agent-core/*": [
+        "packages/host-agent-core/src/*"
+      ],
+      "@kb-labs/host-agent-fs": [
+        "packages/host-agent-fs/src/index.ts"
+      ],
+      "@kb-labs/host-agent-fs/*": [
+        "packages/host-agent-fs/src/*"
+      ],
+      "@kb-labs/host-agent-transport": [
+        "packages/host-agent-transport/src/index.ts"
+      ],
+      "@kb-labs/host-agent-transport/*": [
+        "packages/host-agent-transport/src/*"
+      ]
+    }
   }
 }

@@ -1,8 +1,8 @@
 {
-  "name": "@kb-labs/product-template",
+  "name": "kb-labs-host-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "KB Labs product template — zero-config starter powered by @kb-labs/devkit.",
+  "description": "Daemon that runs on the developer's machine, connects to the cloud Gateway via authenticated WebSocket tunnel, and exposes local filesystem/git as capabilities to server-side agents.",
   "type": "module",
   "author": {
     "name": "Kirill Baranov",
@@ -11,12 +11,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kirill-baranov/kb-labs-product-template.git"
+    "url": "https://github.com/kirill-baranov/kb-labs-host-agent.git"
   },
   "bugs": {
-    "url": "https://github.com/kirill-baranov/kb-labs-product-template/issues"
+    "url": "https://github.com/kirill-baranov/kb-labs-host-agent/issues"
   },
-  "homepage": "https://github.com/kirill-baranov/kb-labs-product-template#readme",
+  "homepage": "https://github.com/kirill-baranov/kb-labs-host-agent#readme",
   "workspaces": [
     "apps/*",
     "packages/*"
