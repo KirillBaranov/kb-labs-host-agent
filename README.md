@@ -1,200 +1,116 @@
-# KB Labs Product Template (@kb-labs/product-template)
+# KB Labs Host Agent
 
-> **Baseline template for products under the @kb-labs namespace.** Fast bootstrap, unified quality rules, simple publishing, and reusable core.
+Daemon that runs on the developer's machine, connects to the cloud Gateway via authenticated WebSocket tunnel, and exposes local filesystem/git as capabilities to server-side agents.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18.18.0+-green.svg)](https://nodejs.org/)
-[![pnpm](https://img.shields.io/badge/pnpm-9.0.0+-orange.svg)](https://pnpm.io/)
-
-## 🎯 Vision
-
-KB Labs Product Template is the baseline template for products under the **@kb-labs** namespace. It provides fast bootstrap, unified quality rules, simple publishing, and reusable core utilities.
-
-The project solves the problem of inconsistent project structure and configurations across multiple KB Labs products by providing a unified template with shared configurations, quality rules, and development workflows. Instead of each new project starting from scratch, developers can use this template for consistent structure and tooling.
-
-This project is part of the **@kb-labs** ecosystem and serves as the foundation for all new KB Labs products.
-
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-# Clone repository
-git clone https://github.com/kirill-baranov/kb-labs-product-template.git
-cd kb-labs-product-template
-
-# Install dependencies
-pnpm install
-```
-
-### Development
-
-```bash
-# Start development mode for all packages
-pnpm dev
-
-# Build all packages
-pnpm build
-
-# Run tests
-pnpm test
-
-# Lint code
-pnpm lint
-```
-
-### Creating a New Package
-
-```bash
-# Using the CLI tool (recommended)
-pnpm dlx @kb-labs/create-pkg my-new-pkg
-
-# Or manually copy and modify
-cp -r packages/package-name packages/<new-package-name>
-# Then update metadata and imports
-```
-
-## ✨ Features
-
-- **Fast Bootstrap**: Quick project setup with unified configurations
-- **Unified Quality Rules**: ESLint, Prettier, TypeScript, Vitest, and TSUP configs
-- **Simple Publishing**: Automated releases through Changesets
-- **Reusable Core**: Shared utilities via `@kb-labs/core`
-- **DevKit Integration**: Zero-maintenance configurations via `@kb-labs/devkit`
-- **Multi-Package Support**: pnpm workspaces for monorepo structure
-
-## 📖 Documentation
-
-- 📦 [Naming Convention](./docs/naming-convention.md) - The Pyramid Rule (mandatory!)
-- 📚 [Documentation Guide](./docs/DOCUMENTATION.md) - How to document your product
-- 🏛️ [ADRs](./docs/adr/) - Architecture Decision Records
-
-## 📁 Repository Structure
+## Architecture
 
 ```
-kb-labs-product-template/
-├── apps/                    # Demo applications
-│   └── demo/                # Example app / playground
-├── packages/                # Core packages
-│   └── package-name/        # Example package (lib/cli/adapter)
-├── fixtures/                # Fixtures for snapshot/integration testing
-├── docs/                    # Documentation
-│   ├── naming-convention.md # The Pyramid Rule (NEW!)
-│   ├── DOCUMENTATION.md     # Documentation guide
-│   └── adr/                 # Architecture Decision Records (ADRs)
-└── scripts/                 # Utility scripts
+Developer's machine:
+  CLI / Studio / IDE
+       │ (IPC — Unix socket ~/.kb/agent.sock)
+  Host Agent daemon
+       │ (WSS + JWT Bearer)
+═══════════════════════════════════
+  Gateway :4000  (cloud server)
+       │
+  REST API / Workflow / Mind
 ```
 
-### Directory Descriptions
+**Host Agent is the only process with outbound network access from the laptop.** All local file operations are performed on-machine; only results travel over the encrypted tunnel.
 
-- **`apps/`** - Demo applications demonstrating product usage
-- **`packages/`** - Core packages (lib, CLI, adapters)
-- **`fixtures/`** - Test fixtures for snapshot and integration testing
-- **`docs/`** - Documentation including ADRs and guides
-
-## 📦 Packages
+## Packages
 
 | Package | Description |
 |---------|-------------|
-| [@kb-labs/package-name](./packages/package-name/) | Example package (replace with your package) |
+| [`@kb-labs/host-agent-contracts`](./packages/host-agent-contracts/) | Zod schemas — config, capability calls, IPC protocol |
+| [`@kb-labs/host-agent-core`](./packages/host-agent-core/) | GatewayClient (WS + reconnect), IpcServer, TokenManager |
+| [`@kb-labs/host-agent-fs`](./packages/host-agent-fs/) | Filesystem capability handler (read/write/list/stat) |
+| [`@kb-labs/host-agent-app`](./apps/host-agent-app/) | Daemon binary — wires everything together |
 
-### Package Details
+## Quick Start
 
-This template includes a single example package that can be customized for your needs:
-- TypeScript library structure
-- Vitest test setup
-- TSUP build configuration
-- Example source code and tests
+```bash
+# 1. Register with Gateway (one-time)
+# → saves ~/.kb/agent.json with clientId, clientSecret, hostId
+kb agent register --gateway https://gateway.example.com
 
-## 🛠️ Available Scripts
+# 2. Start daemon
+kb agent start
 
-| Script | Description |
-|--------|-------------|
-| `pnpm dev` | Start development mode for all packages |
-| `pnpm build` | Build all packages |
-| `pnpm build:clean` | Clean and build all packages |
-| `pnpm test` | Run all tests |
-| `pnpm test:watch` | Run tests in watch mode |
-| `pnpm lint` | Lint all code |
-| `pnpm lint:fix` | Fix linting issues |
-| `pnpm type-check` | TypeScript type checking |
-| `pnpm check` | Run lint, type-check, and tests |
-| `pnpm ci` | Full CI pipeline (clean, build, check) |
-| `pnpm clean` | Clean build artifacts |
-| `pnpm clean:all` | Clean all node_modules and build artifacts |
+# 3. Check status
+kb agent status
+# → { connected: true, hostId: "host_...", gatewayUrl: "..." }
 
-### DevKit Commands
+# 4. Stop daemon
+kb agent stop
+```
 
-| Script | Description |
-|--------|-------------|
-| `pnpm devkit:sync` | Sync DevKit configurations to workspace |
-| `pnpm devkit:check` | Check if DevKit sync is needed |
-| `pnpm devkit:force` | Force DevKit sync (overwrite existing) |
-| `pnpm devkit:help` | Show DevKit sync help |
+## Agent Config
 
-## 🔧 DevKit Integration
+Stored at `~/.kb/agent.json` after `kb agent register`:
 
-This template uses `@kb-labs/devkit` for shared tooling and configurations. DevKit provides:
+```json
+{
+  "clientId": "clt_...",
+  "clientSecret": "cs_...",
+  "hostId": "host_...",
+  "gatewayUrl": "https://gateway.example.com",
+  "namespaceId": "default",
+  "publicKey": "base64url-x25519-public-key"
+}
+```
 
-- **Unified Configurations**: ESLint, Prettier, TypeScript, Vitest, and TSUP configs
-- **Automatic Sync**: Keeps workspace configs in sync with latest DevKit versions
-- **Zero Maintenance**: No need to manually update config files
+`clientSecret` and `privateKey` never leave the machine.
 
-### DevKit Commands Usage
+## Daemon Lifecycle
 
-- **`pnpm devkit:sync`** - Syncs DevKit configurations to your workspace (runs automatically on `pnpm install`)
-- **`pnpm devkit:check`** - Checks if your workspace configs are up-to-date with DevKit
-- **`pnpm devkit:force`** - Forces sync even if local files exist (overwrites local changes)
-- **`pnpm devkit:help`** - Shows detailed help and available options
+```
+1. Load ~/.kb/agent.json
+2. POST /auth/token → { accessToken, refreshToken }
+3. WSS /hosts/connect + Authorization: Bearer <accessToken>
+4. → hello { protocolVersion, agentVersion, hostId }
+5. ← connected { hostId, sessionId }
+6. Heartbeat every 30s
+7. Incoming call → dispatch to capability handler → send chunk + result
+8. Token expiry (5 min before) → POST /auth/refresh → reconnect WS
+9. WS disconnect → exponential backoff (1s → 2s → 4s … max 60s)
+```
 
-For more details, see [ADR-0005: Use DevKit for Shared Tooling](docs/adr/0005-use-devkit-for-shared-tooling.md).
+## Capability Handlers
 
-## 📋 Development Policies
+### filesystem
 
-- **Code Style**: ESLint + Prettier, TypeScript strict mode
-- **Testing**: Vitest with fixtures for integration testing
-- **Versioning**: SemVer with automated releases through Changesets
-- **Architecture**: Document decisions in ADRs (see `docs/adr/`)
-- **Tooling**: Shared configurations via `@kb-labs/devkit`
+| Method | Args | Returns |
+|--------|------|---------|
+| `readFile` | `path: string` | `string` (utf-8) |
+| `writeFile` | `path: string, content: string` | `void` |
+| `listDir` | `path: string` | `string[]` |
+| `stat` | `path: string` | `{ size, isFile, isDir, mtime }` |
+| `exists` | `path: string` | `boolean` |
 
-## 🔧 Requirements
+All paths validated against `allowedPaths` allowlist — requests outside are rejected with `Access denied`.
 
-- **Node.js**: >= 18.18.0
-- **pnpm**: >= 9.0.0
+## IPC Protocol
 
-## 📚 Documentation
+CLI/Studio communicates with the daemon over `~/.kb/agent.sock` (newline-delimited JSON):
 
-- [Documentation Standard](./docs/DOCUMENTATION.md) - Full documentation guidelines
-- [Contributing Guide](./CONTRIBUTING.md) - How to contribute
-- [Architecture Decisions](./docs/adr/) - ADRs for this project
+```jsonc
+// Status check
+→ { "type": "status" }
+← { "type": "status", "connected": true, "hostId": "host_...", "latencyMs": 12 }
 
-## 🔗 Related Packages
+// Execute (future — tunnels to Gateway)
+→ { "type": "execute", "requestId": "...", "command": "workflow:run", "params": {...}, "stream": true }
+← { "type": "event", "requestId": "...", "data": {...} }
+← { "type": "done",  "requestId": "...", "result": {...} }
+```
 
-### Dependencies
+## Development
 
-- [@kb-labs/devkit](https://github.com/KirillBaranov/kb-labs-devkit) - DevKit presets and configurations
+```bash
+pnpm install
+pnpm build
 
-### Used By
-
-- All KB Labs projects as a starting template
-
-### Ecosystem
-
-- [KB Labs](https://github.com/KirillBaranov/kb-labs) - Main ecosystem repository
-
-## 🤝 Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines and contribution process.
-
-## 📄 License
-
-MIT © KB Labs
-
----
-
-**See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines and contribution process.**
-
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
+# Run daemon locally (requires ~/.kb/agent.json)
+node apps/host-agent-app/dist/index.js
+```
