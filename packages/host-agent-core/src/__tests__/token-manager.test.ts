@@ -96,7 +96,7 @@ describe('TokenManager', () => {
 
     expect(refreshTokens).toHaveBeenCalledTimes(3);
     expect(onRefreshFailed).toHaveBeenCalledOnce();
-    expect(onRefreshFailed.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(onRefreshFailed.mock.calls[0]![0]).toBeInstanceOf(Error);
     mgr.stop();
   });
 

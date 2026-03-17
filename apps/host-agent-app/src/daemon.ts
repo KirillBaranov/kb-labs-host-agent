@@ -102,6 +102,7 @@ export async function startDaemon(): Promise<void> {
   const gatewayClient = new GatewayClient({
     gatewayUrl: config.gatewayUrl,
     agentVersion: AGENT_VERSION,
+    capabilities: ['filesystem', 'git'],
     getAccessToken: () => tokenManager.accessToken,
     onConnected: (hostId, sessionId) => {
       connected = true;
@@ -137,6 +138,7 @@ export async function startDaemon(): Promise<void> {
       gatewayUrl: config.gatewayUrl,
       reconnecting: !connected,
     }),
+    gatewayClient,
   });
 
   // Start everything

@@ -36,6 +36,13 @@ export const IpcErrorMessageSchema = z.object({
 });
 export type IpcErrorMessage = z.infer<typeof IpcErrorMessageSchema>;
 
+export const IpcCancelRequestSchema = z.object({
+  type: z.literal('cancel'),
+  executionId: z.string(),
+  reason: z.string().default('user'),
+});
+export type IpcCancelRequest = z.infer<typeof IpcCancelRequestSchema>;
+
 export const IpcStatusRequestSchema = z.object({
   type: z.literal('status'),
 });
@@ -51,5 +58,5 @@ export const IpcStatusResponseSchema = z.object({
 });
 export type IpcStatusResponse = z.infer<typeof IpcStatusResponseSchema>;
 
-export type IpcRequest = IpcExecuteRequest | IpcStatusRequest;
+export type IpcRequest = IpcExecuteRequest | IpcCancelRequest | IpcStatusRequest;
 export type IpcResponse = IpcEventMessage | IpcDoneMessage | IpcErrorMessage | IpcStatusResponse;

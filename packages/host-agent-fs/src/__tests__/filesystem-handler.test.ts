@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FilesystemHandler } from '../filesystem-handler.js';
 import type { CapabilityCall } from '@kb-labs/host-agent-contracts';
+import type { WorkspaceFile } from '../filesystem-handler.js';
 
 function call(method: string, ...args: unknown[]): CapabilityCall {
-  return { requestId: 'r1', adapter: 'filesystem', method, args };
+  return { type: 'call', requestId: 'r1', adapter: 'filesystem', method, args };
 }
 
 describe('FilesystemHandler', () => {
@@ -89,6 +90,78 @@ describe('FilesystemHandler', () => {
   describe('unknown method', () => {
     it('throws for unsupported method', async () => {
       await expect(handler.handle(call('deleteFile', tmpDir))).rejects.toThrow('Unknown filesystem method');
+    });
+  });
+
+  describe('fetchWorkspace', () => {
+    it('returns all text files with relative paths', async () => {
+      await writeFile(join(tmpDir, 'index.ts'), 'export {}');
+      await mkdir(join(tmpDir, 'src'));
+      await writeFile(join(tmpDir, 'src', 'app.ts'), 'const x = 1;');
+
+      const result = await handler.handle(call('fetchWorkspace', tmpDir)) as WorkspaceFile[];
+      expect(Array.isArray(result)).toBe(true);
+      const paths = result.map((f) => f.path);
+      expect(paths).toContain('index.ts');
+      expect(paths).toContain(join('src', 'app.ts'));
+      const indexFile = result.find((f) => f.path === 'index.ts')!;
+      expect(indexFile.content).toBe('export {}');
+    });
+
+    it('excludes node_modules directory', async () => {
+      await mkdir(join(tmpDir, 'node_modules'));
+      await writeFile(join(tmpDir, 'node_modules', 'lib.js'), 'module.exports = {}');
+      await writeFile(join(tmpDir, 'index.ts'), 'export {}');
+
+      const result = await handler.handle(call('fetchWorkspace', tmpDir)) as WorkspaceFile[];
+      const paths = result.map((f) => f.path);
+      expect(paths).not.toContain(join('node_modules', 'lib.js'));
+      expect(paths).toContain('index.ts');
+    });
+
+    it('excludes .git directory', async () => {
+      await mkdir(join(tmpDir, '.git'));
+      await writeFile(join(tmpDir, '.git', 'HEAD'), 'ref: refs/heads/main');
+      await writeFile(join(tmpDir, 'file.ts'), 'x');
+
+      const result = await handler.handle(call('fetchWorkspace', tmpDir)) as WorkspaceFile[];
+      const paths = result.map((f) => f.path);
+      expect(paths.some((p) => p.startsWith('.git'))).toBe(false);
+    });
+
+    it('excludes dist directory', async () => {
+      await mkdir(join(tmpDir, 'dist'));
+      await writeFile(join(tmpDir, 'dist', 'index.js'), '// built');
+      await writeFile(join(tmpDir, 'src.ts'), 'x');
+
+      const result = await handler.handle(call('fetchWorkspace', tmpDir)) as WorkspaceFile[];
+      const paths = result.map((f) => f.path);
+      expect(paths.some((p) => p.startsWith('dist'))).toBe(false);
+      expect(paths).toContain('src.ts');
+    });
+
+    it('returns empty array for empty directory', async () => {
+      const emptyDir = await mkdtemp(join(tmpdir(), 'ha-fs-empty-'));
+      const emptyHandler = new FilesystemHandler({ allowedPaths: [emptyDir] });
+      try {
+        const result = await emptyHandler.handle(call('fetchWorkspace', emptyDir)) as WorkspaceFile[];
+        expect(result).toEqual([]);
+      } finally {
+        await rm(emptyDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects workspace path outside allowedPaths', async () => {
+      await expect(handler.handle(call('fetchWorkspace', '/etc'))).rejects.toThrow('Access denied');
+    });
+
+    it('recurses into nested subdirectories', async () => {
+      await mkdir(join(tmpDir, 'a', 'b'), { recursive: true });
+      await writeFile(join(tmpDir, 'a', 'b', 'deep.ts'), 'deep');
+
+      const result = await handler.handle(call('fetchWorkspace', tmpDir)) as WorkspaceFile[];
+      const paths = result.map((f) => f.path);
+      expect(paths).toContain(join('a', 'b', 'deep.ts'));
     });
   });
 

@@ -1,16 +1,29 @@
 /**
  * IpcServer — accepts IPC requests from CLI/Studio via ILocalTransport.
  * Transport is injected — caller picks unix socket, named pipe, or TCP.
+ *
+ * Execute requests are tunneled through GatewayClient:
+ * CLI → IPC → IpcServer → GatewayClient HTTP → Gateway → Server
+ *
+ * Cancel requests forwarded to Gateway:
+ * CLI → IPC → IpcServer → GatewayClient.cancelExecute() → Gateway REST
  */
 
-import { IpcExecuteRequestSchema, IpcStatusRequestSchema } from '@kb-labs/host-agent-contracts';
-import type { IpcRequest, IpcStatusResponse } from '@kb-labs/host-agent-contracts';
+import {
+  IpcExecuteRequestSchema,
+  IpcCancelRequestSchema,
+  IpcStatusRequestSchema,
+} from '@kb-labs/host-agent-contracts';
+import type { IpcRequest, IpcExecuteRequest, IpcCancelRequest, IpcStatusResponse } from '@kb-labs/host-agent-contracts';
 import type { ILocalTransport } from '@kb-labs/host-agent-transport';
+import type { GatewayClient } from '../ws/gateway-client.js';
 
 export interface IpcServerOptions {
   transport: ILocalTransport;
   /** Returns current connection status */
   getStatus: () => Omit<IpcStatusResponse, 'type'>;
+  /** GatewayClient for tunneling execute requests */
+  gatewayClient?: GatewayClient;
 }
 
 export class IpcServer {
@@ -38,13 +51,66 @@ export class IpcServer {
       return;
     }
 
-    // execute — wired in host-agent-app via opts.transport
-    this.opts.transport.send({
-      type: 'error',
-      requestId: req.requestId,
-      code: 'NOT_IMPLEMENTED',
-      message: 'execute tunneling not yet wired',
-    });
+    if (req.type === 'cancel') {
+      this.handleCancel(req);
+      return;
+    }
+
+    // execute — tunnel through GatewayClient
+    this.handleExecute(req);
+  }
+
+  private handleExecute(req: IpcExecuteRequest): void {
+    const { gatewayClient } = this.opts;
+    if (!gatewayClient) {
+      this.opts.transport.send({
+        type: 'error',
+        requestId: req.requestId,
+        code: 'NO_GATEWAY',
+        message: 'GatewayClient not configured — cannot tunnel execute requests',
+      });
+      return;
+    }
+
+    gatewayClient.executeTunnel(
+      req.requestId,
+      req.command,
+      req.params,
+      {
+        onEvent: (event) => {
+          // Forward execution events to CLI via IPC
+          this.opts.transport.send({
+            type: 'event',
+            requestId: req.requestId,
+            data: event,
+          });
+        },
+        onDone: (result) => {
+          this.opts.transport.send({
+            type: 'done',
+            requestId: req.requestId,
+            result,
+          });
+        },
+        onError: (error) => {
+          this.opts.transport.send({
+            type: 'error',
+            requestId: req.requestId,
+            code: 'TUNNEL_ERROR',
+            message: error.message,
+          });
+        },
+      },
+    );
+  }
+
+  private handleCancel(req: IpcCancelRequest): void {
+    const { gatewayClient } = this.opts;
+    if (!gatewayClient) {
+      return; // Best-effort — nothing to cancel if no gateway
+    }
+
+    gatewayClient.cancelExecute(req.executionId, req.reason);
   }
 
   private parseRequest(raw: unknown): IpcRequest | null {
@@ -52,6 +118,7 @@ export class IpcServer {
     const type = (raw as Record<string, unknown>)['type'];
     if (type === 'status') { return IpcStatusRequestSchema.safeParse(raw).data ?? null; }
     if (type === 'execute') { return IpcExecuteRequestSchema.safeParse(raw).data ?? null; }
+    if (type === 'cancel') { return IpcCancelRequestSchema.safeParse(raw).data ?? null; }
     return null;
   }
 }

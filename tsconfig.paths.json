@@ -3,6 +3,12 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
+      "@kb-labs/host-agent-client": [
+        "packages/host-agent-client/src/index.ts"
+      ],
+      "@kb-labs/host-agent-client/*": [
+        "packages/host-agent-client/src/*"
+      ],
       "@kb-labs/host-agent-contracts": [
         "packages/host-agent-contracts/src/index.ts"
       ],
@@ -26,6 +32,12 @@
       ],
       "@kb-labs/host-agent-transport/*": [
         "packages/host-agent-transport/src/*"
+      ],
+      "@kb-labs/sdk": [
+        "../kb-labs-sdk/packages/sdk/src/index.ts"
+      ],
+      "@kb-labs/sdk/*": [
+        "../kb-labs-sdk/packages/sdk/src/*"
       ]
     }
   }

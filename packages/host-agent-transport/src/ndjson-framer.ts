@@ -5,7 +5,7 @@
  * Guards against oversized buffers (DoS protection).
  */
 
-import net from 'node:net';
+import type net from 'node:net';
 
 const MAX_BUFFER_BYTES = 1024 * 1024; // 1 MB
 
@@ -14,9 +14,11 @@ export class NdjsonFramer {
 
   constructor(private readonly onMessage: (msg: unknown) => void) {}
 
-  /** Feed raw data from socket. Returns false if buffer limit exceeded. */
+  /** Feed raw data from socket. Returns false if buffer limit exceeded (socket is closed). */
   feed(socket: net.Socket, chunk: Buffer | string): boolean {
     if (Buffer.byteLength(this.buffer) + Buffer.byteLength(chunk as string) > MAX_BUFFER_BYTES) {
+      console.warn('[transport] Buffer limit exceeded — closing socket to prevent DoS');
+      socket.destroy(new Error('Buffer limit exceeded'));
       return false;
     }
     this.buffer += chunk.toString();

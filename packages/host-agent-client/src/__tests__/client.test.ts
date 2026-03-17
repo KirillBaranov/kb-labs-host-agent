@@ -109,7 +109,7 @@ describe('HostAgentClient', () => {
     await client.connect();
 
     await expect(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+       
       for await (const _ of client!.execute('bad:command')) { /* drain */ }
     }).rejects.toThrow('something went wrong');
 

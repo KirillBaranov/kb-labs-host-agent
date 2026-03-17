@@ -24,12 +24,21 @@ export interface GatewayClientOptions {
   onDisconnected?: () => void;
   /** Called when token needs refresh (triggered before reconnect) */
   onTokenExpired?: () => Promise<void>;
+  /** Capabilities this host provides — sent in hello message so Gateway can route by capability */
+  capabilities?: string[];
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HELLO_TIMEOUT_MS = 5_000;
 const BACKOFF_INITIAL_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
+
+/** Pending execute tunnel — callbacks for streaming events from Gateway */
+interface PendingExecute {
+  onEvent: (event: unknown) => void;
+  onDone: (result: unknown) => void;
+  onError: (error: Error) => void;
+}
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
@@ -48,6 +57,132 @@ export class GatewayClient {
     this.handlers.set(adapter, handler);
   }
 
+  /**
+   * Tunnel an execute request to Gateway via HTTP REST API.
+   * CLI → IPC → Host Agent → HTTP POST /api/v1/execute → Gateway → Server.
+   * Gateway responds with ndjson stream of ExecutionEvent objects.
+   *
+   * We use HTTP (not WS) because the WS channel is for Gateway→Host calls,
+   * not Host→Gateway execute requests.
+   */
+  executeTunnel(
+    requestId: string,
+    command: string,
+    params: Record<string, unknown> | undefined,
+    callbacks: PendingExecute,
+  ): void {
+    // Parse command: "pluginId:handlerRef"
+    const colonIdx = command.indexOf(':');
+    const pluginId = colonIdx > 0 ? command.slice(0, colonIdx) : command;
+    const handlerRef = colonIdx > 0 ? command.slice(colonIdx + 1) : command;
+
+    const body = {
+      pluginId,
+      handlerRef,
+      exportName: (params?.exportName as string) ?? handlerRef,
+      input: params?.input ?? {},
+      timeoutMs: (params?.timeoutMs as number) ?? undefined,
+    };
+
+    const token = this.opts.getAccessToken();
+    const url = `${this.opts.gatewayUrl}/api/v1/execute`;
+
+    // Fire-and-forget async fetch with ndjson streaming
+    void this.doExecuteHttp(url, token, requestId, body, callbacks);
+  }
+
+  private async doExecuteHttp(
+    url: string,
+    token: string,
+    requestId: string,
+    body: Record<string, unknown>,
+    callbacks: PendingExecute,
+  ): Promise<void> {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        callbacks.onError(new Error(`Gateway HTTP ${res.status}: ${text}`));
+        return;
+      }
+
+      if (!res.body) {
+        callbacks.onError(new Error('Gateway returned no response body'));
+        return;
+      }
+
+      // Read ndjson stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {break;}
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) {continue;}
+
+          try {
+            const event = JSON.parse(trimmed) as Record<string, unknown>;
+            callbacks.onEvent(event);
+
+            if (event.type === 'execution:done') {
+              callbacks.onDone(event);
+            }
+          } catch {
+            // Ignore malformed lines
+          }
+        }
+      }
+
+      // Process remaining buffer
+      if (buffer.trim()) {
+        try {
+          const event = JSON.parse(buffer.trim()) as Record<string, unknown>;
+          callbacks.onEvent(event);
+          if (event.type === 'execution:done') {
+            callbacks.onDone(event);
+          }
+        } catch {
+          // Ignore
+        }
+      }
+    } catch (err) {
+      callbacks.onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  /** Cancel a pending execute via Gateway REST API */
+  cancelExecute(executionId: string, reason?: string): void {
+    const token = this.opts.getAccessToken();
+    const url = `${this.opts.gatewayUrl}/api/v1/execute/${executionId}/cancel`;
+
+    void fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reason: reason ?? 'user' }),
+    }).catch(() => {
+      // Best-effort cancel — ignore network errors
+    });
+  }
+
   async connect(): Promise<void> {
     this.stopped = false;
     await this.doConnect();
@@ -64,7 +199,20 @@ export class GatewayClient {
     const token = this.opts.getAccessToken();
     const wsUrl = this.opts.gatewayUrl.replace(/^http/, 'ws') + '/hosts/connect';
 
-    if (!wsUrl.startsWith('wss://') && !wsUrl.startsWith('ws://localhost') && !wsUrl.startsWith('ws://127.0.0.1')) {
+    // Security model:
+    //   wss:// — always allowed (encrypted, public or private)
+    //   ws://  — allowed only on trusted networks:
+    //     • loopback (localhost, 127.0.0.1)
+    //     • RFC-1918 private IP ranges (10.x, 172.16-31.x, 192.168.x)
+    //     • host.docker.internal (macOS/Windows Docker Desktop bridge)
+    //     • GATEWAY_ALLOW_WS=1 — explicit opt-in for custom setups
+    //       (workflow-daemon sets this when spawning runtime containers on a
+    //        trusted Docker bridge network where the service name is not an IP)
+    const isSecureWs = wsUrl.startsWith('wss://');
+    const isLoopback = wsUrl.startsWith('ws://localhost') || wsUrl.startsWith('ws://127.0.0.1');
+    const isPrivateIp = /^ws:\/\/(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|host\.docker\.internal)/.test(wsUrl);
+    const isExplicitlyAllowed = process.env.GATEWAY_ALLOW_WS === '1';
+    if (!isSecureWs && !isLoopback && !isPrivateIp && !isExplicitlyAllowed) {
       throw new Error(`GatewayClient: insecure WebSocket URL rejected — must use wss:// (got ${wsUrl})`);
     }
 
@@ -84,6 +232,7 @@ export class GatewayClient {
       protocolVersion: '1.0',
       agentVersion: this.opts.agentVersion,
       hostId: this.hostId ?? undefined,
+      capabilities: this.opts.capabilities ?? [],
     });
 
     // Timeout if no 'connected' reply
@@ -119,9 +268,13 @@ export class GatewayClient {
       return;
     }
 
-    if (msg['type'] === 'call') {
+    const type = msg['type'] as string;
+
+    if (type === 'call') {
       void this.handleCall(msg as unknown as CapabilityCall);
+      return;
     }
+
     // heartbeat ack — no action needed
   }
 

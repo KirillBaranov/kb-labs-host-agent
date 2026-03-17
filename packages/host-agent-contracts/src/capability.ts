@@ -5,6 +5,7 @@ export type Capability = z.infer<typeof CapabilitySchema>;
 
 /** A call dispatched from Gateway → Host Agent for a capability */
 export const CapabilityCallSchema = z.object({
+  type: z.literal('call'),
   requestId: z.string(),
   adapter: z.string(),   // 'filesystem' | 'git'
   method: z.string(),

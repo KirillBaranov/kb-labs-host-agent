@@ -25,7 +25,7 @@
     "@kb-labs/host-agent-transport": "workspace:*"
   },
   "devDependencies": {
-    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
+    "@kb-labs/devkit": "workspace:*",
     "@types/node": "^24.3.3",
     "rimraf": "^6",
     "tsup": "^8.5.0",
