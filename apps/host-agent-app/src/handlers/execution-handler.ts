@@ -24,7 +24,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { CapabilityCall } from '@kb-labs/host-agent-contracts';
 import type { GatewayTransport } from '@kb-labs/host-agent-core';
@@ -232,7 +232,7 @@ export class ExecutionHandler {
       });
       return result.data;
     } finally {
-      await socketServer.stop();
+      await socketServer.close();
     }
   }
 

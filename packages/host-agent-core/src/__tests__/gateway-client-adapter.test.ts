@@ -145,7 +145,7 @@ describe('GatewayClient.sendAdapterCall', () => {
 
     const error = await caught;
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toMatch(/timed out/i);
+    expect((error as Error).message).toMatch(/timed out/i);
 
     client.stop();
   });
