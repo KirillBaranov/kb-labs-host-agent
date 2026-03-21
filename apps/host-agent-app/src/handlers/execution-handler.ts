@@ -23,11 +23,13 @@
  * @see ADR-0053: Delivery Semantics
  */
 
-import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { CapabilityCall } from '@kb-labs/host-agent-contracts';
 import type { GatewayTransport } from '@kb-labs/host-agent-core';
-import { createProxyPlatform } from '@kb-labs/core-runtime';
-import { runInProcess } from '@kb-labs/plugin-runtime';
+import { createProxyPlatform, UnixSocketServer } from '@kb-labs/core-runtime';
+import { runInProcess, runInSubprocess } from '@kb-labs/plugin-runtime';
 import { noopUI } from '@kb-labs/plugin-contracts';
 import type { PluginContextDescriptor } from '@kb-labs/plugin-contracts';
 import { LocalPluginResolver, type PluginInventoryEntry } from './local-plugin-resolver.js';
@@ -138,25 +140,19 @@ export class ExecutionHandler {
     const timer = setTimeout(() => controller.abort(), effectiveTimeout);
 
     try {
-      // 6. Execute plugin handler locally
-      const result = await runInProcess({
-        descriptor,
-        platform: proxyPlatform as any,
-        ui: noopUI,
-        handlerPath: resolved.handlerPath,
-        input,
-        signal: controller.signal,
-        cwd: resolved.pluginRoot,
-      });
+      // 6. Execute plugin handler — mode determines isolation level
+      const result = this.opts.executionMode === 'subprocess'
+        ? await this.executeInSubprocess(resolved, descriptor, input, proxyPlatform, effectiveTimeout, controller.signal)
+        : await this.executeInProcess(resolved, descriptor, input, proxyPlatform, controller.signal);
 
       // 7. Record success in journal
       this.journal.set(executionId, {
         status: 'completed',
-        result: result.data,
+        result: result,
         startedAt: this.journal.get(executionId)!.startedAt,
       });
 
-      return result.data;
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
 
@@ -170,6 +166,72 @@ export class ExecutionHandler {
       throw err;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * In-process execution (trust mode) — fast, no isolation.
+   * Plugin runs in same process as Workspace Agent daemon.
+   */
+  private async executeInProcess(
+    resolved: { pluginRoot: string; handlerPath: string },
+    descriptor: PluginContextDescriptor,
+    input: unknown,
+    proxyPlatform: any,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const result = await runInProcess({
+      descriptor,
+      platform: proxyPlatform,
+      ui: noopUI,
+      handlerPath: resolved.handlerPath,
+      input,
+      signal,
+      cwd: resolved.pluginRoot,
+    });
+    return result.data;
+  }
+
+  /**
+   * Subprocess execution (balanced mode) — sandboxed, separate process.
+   *
+   * Flow:
+   *   1. Start UnixSocketServer with proxyPlatform as backend
+   *   2. Fork subprocess via runInSubprocess()
+   *   3. Subprocess connects to Unix socket → adapter calls proxied:
+   *      subprocess → UnixSocket → UnixSocketServer(proxyPlatform) → GatewayTransport → WS → Platform
+   *   4. Subprocess applies sandbox patches (harden.ts)
+   *   5. Result returned via IPC
+   *   6. Cleanup Unix socket server
+   */
+  private async executeInSubprocess(
+    resolved: { pluginRoot: string; handlerPath: string },
+    descriptor: PluginContextDescriptor,
+    input: unknown,
+    proxyPlatform: any,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    // Unique socket path per execution to avoid collisions
+    const socketPath = join(tmpdir(), `kb-ws-agent-${randomUUID()}.sock`);
+
+    // UnixSocketServer bridges subprocess IPC → proxyPlatform → GatewayTransport → Platform
+    const socketServer = new UnixSocketServer(proxyPlatform, { socketPath });
+    await socketServer.start();
+
+    try {
+      const result = await runInSubprocess({
+        descriptor,
+        socketPath,
+        handlerPath: resolved.handlerPath,
+        input,
+        timeoutMs,
+        signal,
+        cwd: resolved.pluginRoot,
+      });
+      return result.data;
+    } finally {
+      await socketServer.stop();
     }
   }
 
