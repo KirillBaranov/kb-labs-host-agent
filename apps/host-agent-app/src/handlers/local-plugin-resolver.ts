@@ -60,18 +60,19 @@ export class LocalPluginResolver {
 
     const handlerPath = resolve(entry.root, normalized);
 
-    // Ensure resolved path is within pluginRoot (no symlink escape)
-    const realHandler = await realpath(handlerPath).catch(() => handlerPath);
-    const realRoot = await realpath(entry.root).catch(() => entry.root);
-    if (!realHandler.startsWith(realRoot + sep) && realHandler !== realRoot) {
-      throw new Error(`Handler path escapes plugin root: ${handlerPath}`);
-    }
-
-    // Verify file exists
+    // Verify file exists first
     try {
       await stat(handlerPath);
     } catch {
       throw new Error(`Handler file not found: ${handlerPath}`);
+    }
+
+    // Ensure resolved path is within pluginRoot (no symlink escape)
+    // Use realpath to resolve symlinks on both sides before comparison
+    const realHandler = await realpath(handlerPath);
+    const realRoot = await realpath(entry.root);
+    if (!realHandler.startsWith(realRoot + sep) && realHandler !== realRoot) {
+      throw new Error(`Handler path escapes plugin root: ${handlerPath}`);
     }
 
     return { pluginRoot: entry.root, handlerPath };
