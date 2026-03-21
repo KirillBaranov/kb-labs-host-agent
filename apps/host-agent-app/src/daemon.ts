@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
 import { GatewayClient, GatewayTransport, IpcServer, TokenManager, type TokenPair } from '@kb-labs/host-agent-core';
-import { FilesystemHandler } from '@kb-labs/host-agent-fs';
+import { FilesystemHandler, SearchHandler, ShellHandler } from '@kb-labs/host-agent-fs';
 import { AgentConfigSchema, TokenPairSchema } from '@kb-labs/host-agent-contracts';
 import { createTransport } from '@kb-labs/host-agent-transport';
 import { ExecutionHandler } from './handlers/execution-handler.js';
@@ -129,6 +129,12 @@ export async function startDaemon(): Promise<void> {
     allowedPaths: config.workspacePaths,
   });
   gatewayClient.registerHandler('filesystem', (call) => fsHandler.handle(call));
+
+  const searchHandler = new SearchHandler({ allowedPaths: config.workspacePaths });
+  gatewayClient.registerHandler('search', (call) => searchHandler.handle(call));
+
+  const shellHandler = new ShellHandler({ allowedPaths: config.workspacePaths });
+  gatewayClient.registerHandler('shell', (call) => shellHandler.handle(call));
 
   // 5. Execution capability — Workspace Agent can execute plugins locally
   const gatewayTransport = new GatewayTransport(gatewayClient, {
