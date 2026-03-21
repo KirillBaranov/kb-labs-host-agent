@@ -134,6 +134,7 @@ export class ExecutionHandler {
       transport: this.opts.gatewayTransport as any,
     });
 
+
     // 5. Setup timeout
     const effectiveTimeout = timeoutMs ?? this.opts.timeoutMs;
     const controller = new AbortController();
