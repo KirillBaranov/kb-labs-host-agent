@@ -26,6 +26,7 @@
     "test:watch": "vitest -c ../../vitest.config.ts"
   },
   "dependencies": {
+    "@kb-labs/gateway-contracts": "workspace:*",
     "@kb-labs/host-agent-contracts": "workspace:*",
     "@kb-labs/host-agent-transport": "workspace:*",
     "ws": "^8.18.0"

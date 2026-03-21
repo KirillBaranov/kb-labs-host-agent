@@ -7,10 +7,28 @@
  * - dispatches incoming `call` messages to registered capability handlers
  */
 
+import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import type { CapabilityCall } from '@kb-labs/host-agent-contracts';
+import type { AdapterCallContext } from '@kb-labs/gateway-contracts';
 
 export type CallHandler = (call: CapabilityCall) => Promise<unknown>;
+
+/** Adapter call input — used by GatewayTransport */
+export interface AdapterCallInput {
+  adapter: string;
+  method: string;
+  args: unknown[];
+  timeout?: number;
+  context: AdapterCallContext;
+}
+
+/** Adapter call response — returned by sendAdapterCall */
+export interface AdapterCallResponse {
+  requestId: string;
+  result?: unknown;
+  error?: { code: string; message: string; retryable: boolean; details?: unknown };
+}
 
 export interface GatewayClientOptions {
   /** wss://gateway.example.com */
@@ -26,12 +44,19 @@ export interface GatewayClientOptions {
   onTokenExpired?: () => Promise<void>;
   /** Capabilities this host provides — sent in hello message so Gateway can route by capability */
   capabilities?: string[];
+  /** Host type for workspace agent routing */
+  hostType?: 'local' | 'cloud';
+  /** Workspace info advertised on connect */
+  workspaces?: Array<{ workspaceId: string; repoFingerprint?: string; branch?: string }>;
+  /** Plugin inventory advertised on connect */
+  plugins?: Array<{ id: string; version: string }>;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HELLO_TIMEOUT_MS = 5_000;
 const BACKOFF_INITIAL_MS = 1_000;
 const BACKOFF_MAX_MS = 60_000;
+const DEFAULT_ADAPTER_CALL_TIMEOUT_MS = 30_000;
 
 /** Pending execute tunnel — callbacks for streaming events from Gateway */
 interface PendingExecute {
@@ -49,12 +74,53 @@ export class GatewayClient {
   private hostId: string | null = null;
   private pendingCalls = new Map<string, (result: unknown) => void>();
   private handlers = new Map<string, CallHandler>();
+  /** Pending reverse adapter calls (Host → Gateway → Platform) */
+  private pendingAdapterCalls = new Map<string, {
+    resolve: (response: AdapterCallResponse) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
 
   constructor(private readonly opts: GatewayClientOptions) {}
 
   /** Register a handler for calls to a specific adapter */
   registerHandler(adapter: string, handler: CallHandler): void {
     this.handlers.set(adapter, handler);
+  }
+
+  /**
+   * Send an adapter call to Platform via Gateway WS (reverse proxy).
+   * Used by GatewayTransport to proxy ctx.llm, ctx.cache, etc. back to Brain.
+   *
+   * Flow: Host → WS adapter:call → Gateway → HTTP → REST API → platform adapter → result
+   */
+  sendAdapterCall(call: AdapterCallInput): Promise<AdapterCallResponse> {
+    return new Promise<AdapterCallResponse>((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+
+      const requestId = randomUUID();
+      const timeoutMs = call.timeout ?? DEFAULT_ADAPTER_CALL_TIMEOUT_MS;
+
+      const timer = setTimeout(() => {
+        this.pendingAdapterCalls.delete(requestId);
+        reject(new Error(`Adapter call timed out after ${timeoutMs}ms: ${call.adapter}.${call.method}`));
+      }, timeoutMs);
+
+      this.pendingAdapterCalls.set(requestId, { resolve, reject, timer });
+
+      this.send({
+        type: 'adapter:call',
+        requestId,
+        adapter: call.adapter,
+        method: call.method,
+        args: call.args,
+        timeout: call.timeout,
+        context: call.context,
+      });
+    });
   }
 
   /**
@@ -233,6 +299,9 @@ export class GatewayClient {
       agentVersion: this.opts.agentVersion,
       hostId: this.hostId ?? undefined,
       capabilities: this.opts.capabilities ?? [],
+      hostType: this.opts.hostType,
+      workspaces: this.opts.workspaces,
+      plugins: this.opts.plugins,
     });
 
     // Timeout if no 'connected' reply
@@ -275,6 +344,30 @@ export class GatewayClient {
       return;
     }
 
+    // Adapter reverse proxy responses (from Gateway/Platform back to us)
+    if (type === 'adapter:response') {
+      const requestId = msg['requestId'] as string;
+      const pending = this.pendingAdapterCalls.get(requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingAdapterCalls.delete(requestId);
+        pending.resolve({ requestId, result: msg['result'] });
+      }
+      return;
+    }
+
+    if (type === 'adapter:error') {
+      const requestId = msg['requestId'] as string;
+      const pending = this.pendingAdapterCalls.get(requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingAdapterCalls.delete(requestId);
+        const error = msg['error'] as { code: string; message: string; retryable: boolean; details?: unknown };
+        pending.resolve({ requestId, error });
+      }
+      return;
+    }
+
     // heartbeat ack — no action needed
   }
 
@@ -305,8 +398,19 @@ export class GatewayClient {
 
   private onClose(): void {
     this.clearTimers();
+    this.rejectAllPendingAdapterCalls();
     this.opts.onDisconnected?.();
     if (!this.stopped) {this.scheduleReconnect();}
+  }
+
+  /** Reject all pending adapter calls on disconnect (at-most-once semantics) */
+  private rejectAllPendingAdapterCalls(): void {
+    const error = new Error('WebSocket disconnected — all pending adapter calls rejected');
+    for (const [requestId, pending] of this.pendingAdapterCalls) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pendingAdapterCalls.clear();
   }
 
   private scheduleReconnect(): void {
