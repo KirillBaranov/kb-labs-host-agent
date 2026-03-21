@@ -13,10 +13,11 @@
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
-import { GatewayClient, IpcServer, TokenManager, type TokenPair } from '@kb-labs/host-agent-core';
+import { GatewayClient, GatewayTransport, IpcServer, TokenManager, type TokenPair } from '@kb-labs/host-agent-core';
 import { FilesystemHandler } from '@kb-labs/host-agent-fs';
 import { AgentConfigSchema, TokenPairSchema } from '@kb-labs/host-agent-contracts';
 import { createTransport } from '@kb-labs/host-agent-transport';
+import { ExecutionHandler } from './handlers/execution-handler.js';
 
 const AGENT_CONFIG_PATH = join(homedir(), '.kb', 'agent.json');
 const AGENT_VERSION = '0.1.0';
@@ -91,7 +92,7 @@ export async function startDaemon(): Promise<void> {
       wsReconnect?.();
     },
     onRefreshFailed: (err) => {
-      console.error('[host-agent] Token refresh permanently failed, exiting:', err.message);
+      console.error('[workspace-agent] Token refresh permanently failed, exiting:', err.message);
       process.exit(1);
     },
   });
@@ -102,15 +103,16 @@ export async function startDaemon(): Promise<void> {
   const gatewayClient = new GatewayClient({
     gatewayUrl: config.gatewayUrl,
     agentVersion: AGENT_VERSION,
-    capabilities: ['filesystem', 'git'],
+    capabilities: ['filesystem', 'git', 'execution'],
+    hostType: config.hostType,
     getAccessToken: () => tokenManager.accessToken,
     onConnected: (hostId, sessionId) => {
       connected = true;
-      console.log(`[host-agent] Connected: hostId=${hostId} session=${sessionId}`);
+      console.log(`[workspace-agent] Connected: hostId=${hostId} session=${sessionId}`);
     },
     onDisconnected: () => {
       connected = false;
-      console.log('[host-agent] Disconnected, reconnecting...');
+      console.log('[workspace-agent] Disconnected, reconnecting...');
     },
     onTokenExpired: async () => {
       // Will be handled by TokenManager — no action needed
@@ -128,7 +130,23 @@ export async function startDaemon(): Promise<void> {
   });
   gatewayClient.registerHandler('filesystem', (call) => fsHandler.handle(call));
 
-  // 5. IPC server — transport auto-selects unix socket / named pipe / tcp by platform
+  // 5. Execution capability — Workspace Agent can execute plugins locally
+  const gatewayTransport = new GatewayTransport(gatewayClient, {
+    namespaceId: config.namespaceId,
+    hostId: config.hostId,
+  });
+
+  const executionHandler = new ExecutionHandler({
+    gatewayTransport,
+    allowedPaths: config.workspacePaths,
+    executionMode: config.execution.mode,
+    timeoutMs: config.execution.timeoutMs,
+    allowedPlugins: config.execution.allowedPlugins,
+  });
+
+  gatewayClient.registerHandler('execution', (call) => executionHandler.handle(call));
+
+  // 6. IPC server — transport auto-selects unix socket / named pipe / tcp by platform
   const ipcTransport = createTransport({ mode: 'auto' });
   const ipcServer = new IpcServer({
     transport: ipcTransport,
@@ -143,15 +161,16 @@ export async function startDaemon(): Promise<void> {
 
   // Start everything
   await tokenManager.start();
-  console.log('[host-agent] Token acquired');
+  console.log('[workspace-agent] Token acquired');
 
   await gatewayClient.connect();
   await ipcServer.start();
-  console.log('[host-agent] IPC transport started');
+  console.log('[workspace-agent] IPC transport started');
 
   // 6. Graceful shutdown
   const shutdown = (): void => {
-    console.log('[host-agent] Shutting down...');
+    console.log('[workspace-agent] Shutting down...');
+    executionHandler.stop();
     tokenManager.stop();
     gatewayClient.stop();
     ipcServer.stop();
