@@ -1,6 +1,6 @@
 /**
- * agent:register command
- * Register this machine with a Gateway and save credentials to ~/.kb/agent.json.
+ * workspace:register command (alias: agent:register)
+ * Register this machine with a Platform Gateway and save credentials to ~/.kb/agent.json.
  */
 
 import { defineCommand, type PluginContextV3 } from '@kb-labs/sdk';
@@ -22,8 +22,8 @@ type RegisterResult = {
 };
 
 export default defineCommand({
-  id: 'agent:register',
-  description: 'Register this machine with a Gateway',
+  id: 'workspace:register',
+  description: 'Register this machine with a Platform Gateway',
 
   handler: {
     async execute(ctx: PluginContextV3, rawInput: RegisterInput): Promise<RegisterResult> {
@@ -50,7 +50,7 @@ export default defineCommand({
       }
 
       if (!gatewayUrl) {
-        ctx.ui?.error?.('--gateway is required. Example: kb agent:register --gateway http://localhost:4000');
+        ctx.ui?.error?.('--gateway is required. Example: kb workspace:register --gateway http://localhost:4000');
         return { exitCode: 1 };
       }
 
@@ -68,7 +68,7 @@ export default defineCommand({
         res = await fetch(`${gatewayUrl}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, namespaceId, capabilities: ['filesystem', 'git'] }),
+          body: JSON.stringify({ name, namespaceId, capabilities: ['filesystem', 'git', 'execution', 'search', 'shell'] }),
         });
       } catch (err) {
         ctx.ui?.error?.(`Failed to reach Gateway: ${err instanceof Error ? err.message : String(err)}`);
@@ -113,7 +113,12 @@ export default defineCommand({
         hostId: data.hostId,
         gatewayUrl,
         namespaceId,
+        hostType: 'local' as const,
         workspacePaths,
+        execution: {
+          mode: 'in-process' as const,
+          timeoutMs: 120_000,
+        },
       };
 
       await writeFile(configPath, JSON.stringify(agentConfig, null, 2), { mode: 0o600 });
@@ -121,7 +126,7 @@ export default defineCommand({
       if (input.json) {
         ctx.ui?.json?.({ configPath, hostId: data.hostId, clientId: data.clientId });
       } else {
-        ctx.ui?.success?.('Host Agent registered', {
+        ctx.ui?.success?.('Workspace Agent registered', {
           sections: [{
             items: [
               `Host ID:    ${data.hostId}`,
@@ -133,7 +138,7 @@ export default defineCommand({
             ],
           }],
         });
-        ctx.ui?.info?.('Run `kb agent:start` to start the daemon.');
+        ctx.ui?.info?.('Next: start the daemon with `pnpm dev:start:host-agent` or `kb workspace:start`.');
       }
 
       return { exitCode: 0, configPath };
