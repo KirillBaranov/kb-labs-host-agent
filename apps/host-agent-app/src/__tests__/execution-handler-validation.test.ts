@@ -3,7 +3,7 @@ import { ExecutionHandler } from '../handlers/execution-handler.js';
 
 function makeHandler() {
   return new ExecutionHandler({
-    workspacePaths: ['/tmp/test-workspace'],
+    allowedPaths: ['/tmp/test-workspace'],
     gatewayTransport: { send: vi.fn(), close: vi.fn() } as any,
     executionMode: 'in-process',
     timeoutMs: 5000,
