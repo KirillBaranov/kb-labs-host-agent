@@ -126,27 +126,36 @@ export class ExecutionHandler {
       }
     }
 
-    // 3. Resolve plugin locally (Workspace Agent owns path resolution)
+    // 3. Validate descriptor has required fields for context creation
+    if (!descriptor?.permissions) {
+      this.journal.delete(executionId);
+      throw new Error(
+        `Execution ${executionId}: descriptor.permissions is required. ` +
+        'Provide at least { fs: { read: ["."], write: [] } } for filesystem access.',
+      );
+    }
+
+    // 4. Resolve plugin locally (Workspace Agent owns path resolution)
     const resolved = await this.pluginResolver.resolve(pluginId, handlerRef);
 
-    // 4. Create proxy platform (LLM/Cache/etc → GatewayTransport → Platform)
+    // 5. Create proxy platform (LLM/Cache/etc → GatewayTransport → Platform)
     const proxyPlatform = await createProxyPlatform({
       transport: this.opts.gatewayTransport as any,
     });
 
 
-    // 5. Setup timeout
+    // 6. Setup timeout
     const effectiveTimeout = timeoutMs ?? this.opts.timeoutMs;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), effectiveTimeout);
 
     try {
-      // 6. Execute plugin handler — mode determines isolation level
+      // 7. Execute plugin handler — mode determines isolation level
       const result = this.opts.executionMode === 'subprocess'
         ? await this.executeInSubprocess(resolved, descriptor, input, proxyPlatform, effectiveTimeout, controller.signal)
         : await this.executeInProcess(resolved, descriptor, input, proxyPlatform, controller.signal);
 
-      // 7. Record success in journal
+      // 8. Record success in journal
       this.journal.set(executionId, {
         status: 'completed',
         result: result,
