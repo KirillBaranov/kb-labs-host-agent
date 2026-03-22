@@ -10,52 +10,35 @@ function makeHandler() {
   });
 }
 
-describe('ExecutionHandler — descriptor validation', () => {
-  it('rejects execution when descriptor.permissions is missing', async () => {
+describe('ExecutionHandler — descriptor defaults', () => {
+  it('defaults permissions when descriptor omits them', async () => {
     const handler = makeHandler();
 
+    // This should NOT throw — permissions are defaulted
+    // It will fail at plugin resolution (no real plugins), but not at validation
     const result = handler.handle({
       type: 'call',
       requestId: 'req-1',
       adapter: 'execution',
       method: 'execute',
       args: [{
-        executionId: 'exec-no-perms',
-        pluginId: '@test/plugin',
+        executionId: 'exec-default-perms',
+        pluginId: '@test/nonexistent',
         handlerRef: 'dist/handler.js',
         input: {},
         descriptor: {
-          pluginId: '@test/plugin',
+          pluginId: '@test/nonexistent',
           pluginVersion: '1.0.0',
           handlerId: 'handler',
           requestId: 'req-1',
           hostType: 'cli',
           hostContext: { host: 'cli' },
-          // NO permissions field
+          // NO permissions — should be defaulted
         },
       }],
     });
 
-    await expect(result).rejects.toThrow('descriptor.permissions is required');
-  });
-
-  it('rejects execution when descriptor is missing entirely', async () => {
-    const handler = makeHandler();
-
-    const result = handler.handle({
-      type: 'call',
-      requestId: 'req-2',
-      adapter: 'execution',
-      method: 'execute',
-      args: [{
-        executionId: 'exec-no-desc',
-        pluginId: '@test/plugin',
-        handlerRef: 'dist/handler.js',
-        input: {},
-        // NO descriptor
-      }],
-    });
-
-    await expect(result).rejects.toThrow('descriptor.permissions is required');
+    // Should fail at plugin resolution or later, NOT at 'descriptor.permissions is required'
+    await expect(result).rejects.not.toThrow(/descriptor\.permissions is required/i);
   });
 });

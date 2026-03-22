@@ -126,13 +126,14 @@ export class ExecutionHandler {
       }
     }
 
-    // 3. Validate descriptor has required fields for context creation
-    if (!descriptor?.permissions) {
-      this.journal.delete(executionId);
-      throw new Error(
-        `Execution ${executionId}: descriptor.permissions is required. ` +
-        'Provide at least { fs: { read: ["."], write: [] } } for filesystem access.',
-      );
+    // 3. Default permissions if not provided (CLI dispatch may omit them)
+    if (descriptor && !descriptor.permissions) {
+      descriptor.permissions = {
+        fs: { read: ['.'], write: ['.'] },
+        network: { fetch: [] },
+        env: { read: [] },
+        platform: { llm: true, cache: true },
+      };
     }
 
     // 4. Resolve plugin locally (Workspace Agent owns path resolution)
