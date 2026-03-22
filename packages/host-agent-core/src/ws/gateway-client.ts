@@ -50,6 +50,12 @@ export interface GatewayClientOptions {
   workspaces?: Array<{ workspaceId: string; repoFingerprint?: string; branch?: string }>;
   /** Plugin inventory advertised on connect */
   plugins?: Array<{ id: string; version: string }>;
+  /** Optional logger for connection diagnostics */
+  logger?: {
+    info(msg: string, meta?: Record<string, unknown>): void;
+    warn(msg: string, meta?: Record<string, unknown>): void;
+    debug(msg: string, meta?: Record<string, unknown>): void;
+  };
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -72,6 +78,8 @@ export class GatewayClient {
   private backoffMs = BACKOFF_INITIAL_MS;
   private stopped = false;
   private hostId: string | null = null;
+  private reconnectCount = 0;
+  private disconnectedAt: number | null = null;
   private pendingCalls = new Map<string, (result: unknown) => void>();
   private handlers = new Map<string, CallHandler>();
   /** Pending reverse adapter calls (Host → Gateway → Platform) */
@@ -289,7 +297,7 @@ export class GatewayClient {
     this.ws.on('open', () => this.onOpen());
     this.ws.on('message', (data) => this.onMessage(data.toString()));
     this.ws.on('close', () => this.onClose());
-    this.ws.on('error', (err) => { console.warn('[gateway-client] WS error:', err.message); });
+    this.ws.on('error', (err) => { this.opts.logger?.warn('WS error', { error: err.message }); });
   }
 
   private onOpen(): void {
@@ -319,8 +327,14 @@ export class GatewayClient {
         return;
       }
       if (msg.type === 'connected' && msg.hostId && typeof msg.hostId === 'string') {
+        const reconnectMs = this.disconnectedAt ? Date.now() - this.disconnectedAt : 0;
         this.hostId = msg.hostId;
-        this.backoffMs = BACKOFF_INITIAL_MS; // reset on success
+        this.backoffMs = BACKOFF_INITIAL_MS;
+        this.disconnectedAt = null;
+        if (this.reconnectCount > 0) {
+          this.opts.logger?.info('Reconnected', { hostId: msg.hostId, attempt: this.reconnectCount, reconnectMs });
+        }
+        this.reconnectCount = 0;
         this.startHeartbeat();
         this.opts.onConnected?.(msg.hostId, msg.sessionId ?? '');
       } else {
@@ -398,9 +412,13 @@ export class GatewayClient {
 
   private onClose(): void {
     this.clearTimers();
+    this.disconnectedAt = this.disconnectedAt ?? Date.now();
     this.rejectAllPendingAdapterCalls();
     this.opts.onDisconnected?.();
-    if (!this.stopped) {this.scheduleReconnect();}
+    if (!this.stopped) {
+      this.opts.logger?.warn('Disconnected, scheduling reconnect', { hostId: this.hostId, backoffMs: this.backoffMs });
+      this.scheduleReconnect();
+    }
   }
 
   /** Reject all pending adapter calls on disconnect (at-most-once semantics) */
@@ -414,6 +432,8 @@ export class GatewayClient {
   }
 
   private scheduleReconnect(): void {
+    this.reconnectCount++;
+    this.opts.logger?.debug('Reconnect scheduled', { attempt: this.reconnectCount, backoffMs: this.backoffMs });
     this.reconnectTimer = setTimeout(async () => {
       if (this.stopped) {return;}
       await this.opts.onTokenExpired?.();
