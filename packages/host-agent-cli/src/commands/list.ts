@@ -47,7 +47,7 @@ export default defineCommand({
           // No agent config
         }
       }
-      gatewayUrl = gatewayUrl ?? process.env.KB_GATEWAY_URL ?? 'http://localhost:4000';
+      gatewayUrl = gatewayUrl ?? ctx.runtime?.env?.('KB_GATEWAY_URL') ?? 'http://localhost:4000';
 
       // Get auth token
       let token: string | undefined;
