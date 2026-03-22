@@ -1,0 +1,29 @@
+# Example: Run Workspace Agent in Docker
+#
+# Usage:
+#   cp docker-compose.example.yml docker-compose.yml
+#   cp .env.example .env  # edit GATEWAY_URL
+#   docker compose up -d
+#
+# The agent will auto-register with Gateway on first start.
+# Credentials are persisted in the agent-config volume.
+
+services:
+  workspace-agent:
+    build: .
+    environment:
+      - GATEWAY_URL=${GATEWAY_URL:-http://host.docker.internal:4000}
+      - HOST_NAME=${HOST_NAME:-workspace-agent-docker}
+      - CAPABILITIES=${CAPABILITIES:-filesystem,git,execution}
+      - REST_API_URL=${REST_API_URL:-http://host.docker.internal:5050}
+    volumes:
+      # Persist agent credentials across restarts
+      - agent-config:/root/.kb
+      # Mount workspace (optional — for file access)
+      - ${WORKSPACE_PATH:-.}:/workspace:ro
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  agent-config:

@@ -32,3 +32,15 @@ export const statusFlags = {
     default: false,
   },
 };
+
+export const listFlags = {
+  json: {
+    type: 'boolean' as const,
+    describe: 'Output as JSON',
+    default: false,
+  },
+  gateway: {
+    type: 'string' as const,
+    describe: 'Gateway URL (default: from ~/.kb/agent.json or http://localhost:4000)',
+  },
+};

@@ -1,5 +1,5 @@
 import { defineCommandFlags, combinePermissions, kbPlatformPreset } from '@kb-labs/sdk';
-import { registerFlags, statusFlags } from './commands/flags.js';
+import { registerFlags, statusFlags, listFlags } from './commands/flags.js';
 
 const pluginPermissions = combinePermissions()
   .with(kbPlatformPreset)
@@ -68,6 +68,25 @@ export const manifest = {
         examples: [
           'kb workspace:status',
           'kb workspace:status --json',
+        ],
+      },
+
+      {
+        id: 'workspace:list',
+        group: 'workspace',
+        describe: 'List all connected Workspace Agents.',
+        longDescription:
+          'Queries the Gateway REST API for all registered hosts and shows their status, capabilities, and last seen time.',
+
+        handler: './commands/list.js#default',
+        handlerPath: './commands/list.js',
+
+        flags: defineCommandFlags(listFlags),
+
+        examples: [
+          'kb workspace:list',
+          'kb workspace:list --json',
+          'kb workspace:list --gateway https://gateway.kblabs.dev',
         ],
       },
 
