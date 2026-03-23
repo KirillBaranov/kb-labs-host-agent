@@ -3,6 +3,18 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
+      "@kb-labs/core-runtime": [
+        "../../platform/kb-labs-core/packages/core-runtime/src/index.ts"
+      ],
+      "@kb-labs/core-runtime/*": [
+        "../../platform/kb-labs-core/packages/core-runtime/src/*"
+      ],
+      "@kb-labs/gateway-contracts": [
+        "../kb-labs-gateway/packages/gateway-contracts/src/index.ts"
+      ],
+      "@kb-labs/gateway-contracts/*": [
+        "../kb-labs-gateway/packages/gateway-contracts/src/*"
+      ],
       "@kb-labs/host-agent-client": [
         "packages/host-agent-client/src/index.ts"
       ],
@@ -33,11 +45,23 @@
       "@kb-labs/host-agent-transport/*": [
         "packages/host-agent-transport/src/*"
       ],
+      "@kb-labs/plugin-contracts": [
+        "../kb-labs-plugin/packages/plugin-contracts/src/index.ts"
+      ],
+      "@kb-labs/plugin-contracts/*": [
+        "../kb-labs-plugin/packages/plugin-contracts/src/*"
+      ],
+      "@kb-labs/plugin-runtime": [
+        "../kb-labs-plugin/packages/plugin-runtime/src/index.ts"
+      ],
+      "@kb-labs/plugin-runtime/*": [
+        "../kb-labs-plugin/packages/plugin-runtime/src/*"
+      ],
       "@kb-labs/sdk": [
-        "../kb-labs-sdk/packages/sdk/src/index.ts"
+        "../../platform/kb-labs-sdk/packages/sdk/src/index.ts"
       ],
       "@kb-labs/sdk/*": [
-        "../kb-labs-sdk/packages/sdk/src/*"
+        "../../platform/kb-labs-sdk/packages/sdk/src/*"
       ]
     }
   }

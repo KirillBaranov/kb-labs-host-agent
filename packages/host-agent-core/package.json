@@ -26,13 +26,13 @@
     "test:watch": "vitest -c ../../vitest.config.ts"
   },
   "dependencies": {
-    "@kb-labs/gateway-contracts": "workspace:*",
+    "@kb-labs/gateway-contracts": "link:../../../kb-labs-gateway/packages/gateway-contracts",
     "@kb-labs/host-agent-contracts": "workspace:*",
     "@kb-labs/host-agent-transport": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@kb-labs/devkit": "workspace:*",
+    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
     "@types/ws": "^8.5.13",
     "rimraf": "^6",
     "tsup": "^8.5.0",

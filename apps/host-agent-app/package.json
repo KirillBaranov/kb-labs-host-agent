@@ -21,16 +21,16 @@
     "test:watch": "vitest -c ../../vitest.config.ts"
   },
   "dependencies": {
-    "@kb-labs/core-runtime": "workspace:*",
+    "@kb-labs/core-runtime": "link:../../../../platform/kb-labs-core/packages/core-runtime",
     "@kb-labs/host-agent-contracts": "workspace:*",
     "@kb-labs/host-agent-core": "workspace:*",
     "@kb-labs/host-agent-fs": "workspace:*",
     "@kb-labs/host-agent-transport": "workspace:*",
-    "@kb-labs/plugin-contracts": "workspace:*",
-    "@kb-labs/plugin-runtime": "workspace:*"
+    "@kb-labs/plugin-contracts": "link:../../../kb-labs-plugin/packages/plugin-contracts",
+    "@kb-labs/plugin-runtime": "link:../../../kb-labs-plugin/packages/plugin-runtime"
   },
   "devDependencies": {
-    "@kb-labs/devkit": "workspace:*",
+    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
     "@types/node": "^24.3.3",
     "rimraf": "^6",
     "tsup": "^8.5.0",

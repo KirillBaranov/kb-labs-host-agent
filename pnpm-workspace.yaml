@@ -1,3 +1,14 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - apps/*
+  - packages/*
+  - ../../platform/kb-labs-core/../kb-labs-devkit
+  - ../../platform/kb-labs-core/apps/*
+  - ../../platform/kb-labs-core/packages/*
+  - ../../platform/kb-labs-sdk/apps/*
+  - ../../platform/kb-labs-sdk/packages/*
+  - ../kb-labs-devkit
+  - ../kb-labs-gateway/apps/*
+  - ../kb-labs-gateway/packages/*
+  - ../kb-labs-plugin/../kb-labs-devkit
+  - ../kb-labs-plugin/packages/*
+  - ../kb-labs-plugin/packages/plugin-adapters/*
