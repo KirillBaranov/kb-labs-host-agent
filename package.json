@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/host-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Daemon that runs on the developer's machine, connects to the cloud Gateway via authenticated WebSocket tunnel, and exposes local filesystem/git as capabilities to server-side agents.",
   "type": "module",
   "author": {
